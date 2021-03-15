@@ -3,20 +3,87 @@ defpackage first-design :
   import core
   import jitx
   import jitx/commands
+
   import ocdb/defaults
+  import ocdb/symbols
   import ocdb/generic-components
+  import ocdb/design-vars
+  import ocdb/bundles
+  import ocdb/passive-circuits
 
-pcb-module my-design :
-  public inst r : chip-resistor(1.0e3)
 
-make-default-board(my-design, 4, 25.0, 10.0)
+OPERATING-TEMPERATURE = [-20.0 50.0]
+OPTIMIZE-FOR = ["area"]
+MIN-PKG = "0402"
+
+
+pcb-module remote-controller :
+  inst battery-holes : pin-header(2, 1, 1.25) ; https://www.amazon.com/100mAh-Battery-Cheerson-Quadcopter-Charger/dp/B083NWXLTK
+  ; 3.7V Li-Po battery 100mAh
+  ; Size:L18*W14*H7mm;
+  ; Discharger Plug: Molex picoblade 1.25mm 2-pin Plug
+  ; Discharge Rate: 20C -> 0.1Ah * 20C = 2A max discharge
+  property(battery-holes.p[2].rated-voltage) = [3.2 4.2]  ; pin headers are randomly 1-indexed, not to mix with pin-header-cmp defined in a test that is 0-indexed
+
+  net gnd (battery-holes.p[1])
+  symbol(gnd) = ground-sym
+  net vdd (battery-holes.p[2])
+
+  inst motor-holes : pin-header(2)[4] ; USAQ 10328268 https://www.amazon.com/USAQ-Coreless-Brushed-8-5x20mm-Propeller/dp/B06Y11C2HL
+  ; Operating Voltage: 3.7-4.2V
+  ; Operating Current: 0.08A-0.1A
+  ; Motor Diameter: 8mm
+
+  inst motor-ldo : ocdb/natlinear/LN1134/module(2.8) ; no stock of 3.0V (LN1134A282MR-G)
+  net (gnd motor-ldo.gnd)
+  net (vdd motor-ldo.vin motor-ldo.en)  ; FIXME: Is there better to do for the enable pin?
+
+  ; We use a different LDO ESP32 and IMU so that if the current limiter of the motor LDO is triggered, it does not shuts down the ESP32, its memory and the link to the remote controller
+  inst logic-ldo : ocdb/natlinear/LN1134/module(2.8) ; no stock of 3.0V (LN1134A282MR-G)
+  net (gnd logic-ldo.gnd)
+  net (vdd logic-ldo.vin logic-ldo.en)
+
+  ; Add a Bluetooth SoC
+  inst proc : ocdb/espressif/ESP32-PICO-D4/module
+  inst ant : inverted-f-antenna
+  net (proc.ant, ant.rf-in)
+  place(ant) at loc(9.0, 5.0, -90.0) on Top
+  ; A USB connector could be plugged to UART but would add weigth. Better to use an external usb module
+  ; Does the UART pins need a UART port part for connection to external UART-USB connector ?
+  net (logic-ldo.vout proc.power.vdd)
+  net (gnd proc.gnd)
+  port pwr: power
+  net (vdd pwr.vdd)
+  net (gnd pwr.gnd)
+  attach-programming-connector(proc, pwr, "jtag")
+
+  ; PWM for motors
+  inst nfet : ocdb/slkormicro-elec/2N7002E/component[4]
+  ; MOSFET N TRENCH 60V 300MA 2.5V @ 250UA 3 Ω @ 500MA,10V SOT-23 ROHS
+
+  for i in 0 to 4 do :
+    require gpio:gpio from proc
+    net (nfet[i].g gpio.gpio)
+    net (nfet[i].s gnd)
+    net (nfet[i].d motor-holes[i].p[1])
+    net (motor-ldo.vout motor-holes[i].p[2])
+    res-strap(nfet[i].g, nfet[i].s, 10.0e3)
+
+  inst imu : ocdb/invensense/MPU-6050/module
+  net (gnd imu.gnd)
+  net (logic-ldo.vout imu.vdd)
+  make-voltage-divider(logic-ldo.vout, imu.vlogic, gnd, [1.71 1.8 1.89], 1.0e-4)
+  require proc-i2c:i2c from proc
+  net (proc-i2c imu.i2c)
+
+make-default-board(remote-controller, 4, 100.0, 100.0)
 
 ; Export CAD with default options
-export-cad()
+;export-cad()
 
 ; Show the Schematic and PCB for the design
 view-board()
 view-schematic()
 
-; Print the MPN of the resistor from the design
-println(mpn?(my-design.r))
+; Generated IMU source from SnapEDA https://www.snapeda.com/parts/MPU-6050/TDK%20InvenSense/view-part/
+; import-kicad("/home/jitx/Downloads/MPU-6050/", "MPU-6050/")
