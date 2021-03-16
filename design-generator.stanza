@@ -52,7 +52,7 @@ pcb-module logic :
     val output-voltage = 2.8
 
   ; Add a Bluetooth SoC
-  inst proc : ocdb/espressif/ESP32-PICO-D4/module
+  public inst proc : ocdb/espressif/ESP32-PICO-D4/module
   net (power proc.power)
 
   inst ant : inverted-f-antenna
@@ -79,7 +79,7 @@ pcb-module actuators :
   ; Motor Diameter: 8mm
 
   ; PWM for motors
-  inst nfet : ocdb/slkormicro-elec/2N7002E/component[4]
+  public inst nfet : ocdb/slkormicro-elec/2N7002E/component[4]
   ; MOSFET N TRENCH 60V 300MA 2.5V @ 250UA 3 Ω @ 500MA,10V SOT-23 ROHS
 
   for i in 0 to 4 do :
