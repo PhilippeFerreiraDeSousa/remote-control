@@ -16,6 +16,11 @@ OPERATING-TEMPERATURE = [-20.0 50.0]
 OPTIMIZE-FOR = ["area"]
 MIN-PKG = "0402"
 
+
+;======================================
+;============= Power Supply ===========
+;======================================
+
 pcb-module power-supply :
   pin gnd
   pin logic-supply
@@ -44,6 +49,20 @@ pcb-module power-supply :
   net (logic-supply logic-ldo.vout)
   property(logic-supply.voltage) = property(logic-ldo.vout.voltage)
 
+defn create-power-supply (gnd: JITXObject,
+                          logic-supply: JITXObject,
+                          actuators-supply: JITXObject) :
+  inside pcb-module :
+    inst power-supply : power-supply
+    schematic-group(power-supply) = power-supply
+    net (gnd power-supply.gnd)
+    net (logic-supply power-supply.logic-supply)
+    net (actuators-supply power-supply.actuators-supply)
+
+
+;======================================
+;================ Logic ===============
+;======================================
 
 pcb-module logic :
   port power : power
@@ -68,6 +87,19 @@ pcb-module logic :
   require proc-i2c:i2c from proc
   net (proc-i2c imu.i2c)
 
+defn create-logic (gnd: JITXObject,
+                   supply: JITXObject) :
+  inside pcb-module :
+    inst logic : logic
+    schematic-group(logic) = logic
+    net (supply logic.power.vdd)
+    ; FIXME: This should flow automatically, that is the 3rd statement to make it flow and this statement doesn't work
+    property(supply.voltage) = property(logic.power.vdd.voltage)
+    net (gnd logic.power.gnd)
+
+;======================================
+;============== Actuators =============
+;======================================
 
 pcb-module actuators :
   pin gnd
@@ -88,6 +120,17 @@ pcb-module actuators :
     net (supply motor-holes[i].p[2])
     res-strap(nfet[i].g, nfet[i].s, 10.0e3)
 
+defn create-actuators (gnd: JITXObject,
+                       supply: JITXObject) :
+  inside pcb-module :
+    inst actuators : actuators
+    schematic-group(actuators) = actuators
+    net (gnd actuators.gnd)
+    net (supply, actuators.supply)
+
+;======================================
+;============== Design =============
+;======================================
 
 pcb-module remote-controller :
   net gnd ()
@@ -95,23 +138,10 @@ pcb-module remote-controller :
   net logic-supply ()
   net actuators-supply ()
 
-  inst power-supply : power-supply
-  schematic-group(power-supply) = power-supply
-  net (gnd power-supply.gnd)
-  net (logic-supply power-supply.logic-supply)
-  net (actuators-supply power-supply.actuators-supply)
+  create-power-supply(gnd, logic-supply, actuators-supply)
+  create-logic(gnd, logic-supply)
+  create-actuators(gnd, actuators-supply)
 
-  inst logic : logic
-  schematic-group(logic) = logic
-  net (logic-supply logic.power.vdd)
-  ; FIXME: This should flow automatically, that is the 3rd statement to make it flow and this statement doesn't work
-  property(logic-supply.voltage) = property(logic.power.vdd.voltage)
-  net (gnd logic.power.gnd)
-
-  inst actuators : actuators
-  schematic-group(actuators) = actuators
-  net (gnd actuators.gnd)
-  net (actuators-supply, actuators.supply)
   for i in 0 to 4 do :
     require gpio:gpio from logic.proc
     net (actuators.nfet[i].g gpio.gpio)
