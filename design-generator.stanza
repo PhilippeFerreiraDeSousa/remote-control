@@ -19,8 +19,8 @@ MIN-PKG = "0402"
 pcb-module power-supply :
   pin gnd
   pin logic-supply
-  pin motor-supply
-  private pin vdd
+  pin actuators-supply
+  net vdd ()  ; net used as private pin
 
   inst battery-holes : pin-header(2, 1, 1.25) ; https://www.amazon.com/100mAh-Battery-Cheerson-Quadcopter-Charger/dp/B083NWXLTK
   ; 3.7V Li-Po battery 100mAh
@@ -31,11 +31,11 @@ pcb-module power-supply :
   net (gnd battery-holes.p[1])
   net (vdd battery-holes.p[2])
 
-  inst motor-ldo : ocdb/natlinear/LN1134/module(2.8) ; no stock of 3.0V (LN1134A282MR-G)
-  net (gnd motor-ldo.gnd)
-  net (vdd motor-ldo.vin motor-ldo.en)  ; FIXME: Is there better to do for the enable pin?
-  net (motor-supply motor-ldo.vout)
-  property(motor-supply.voltage) = property(motor-ldo.vout.voltage)
+  inst actuators-ldo : ocdb/natlinear/LN1134/module(2.8) ; no stock of 3.0V (LN1134A282MR-G)
+  net (gnd actuators-ldo.gnd)
+  net (vdd actuators-ldo.vin actuators-ldo.en)  ; FIXME: Is there better to do for the enable pin?
+  net (actuators-supply actuators-ldo.vout)
+  property(actuators-supply.voltage) = property(actuators-ldo.vout.voltage)
 
   ; We use a different LDO ESP32 and IMU so that if the current limiter of the motor LDO is triggered, it does not shuts down the ESP32, its memory and the link to the remote controller
   inst logic-ldo : ocdb/natlinear/LN1134/module(2.8) ; no stock of 3.0V (LN1134A282MR-G)
@@ -45,51 +45,76 @@ pcb-module power-supply :
   property(logic-supply.voltage) = property(logic-ldo.vout.voltage)
 
 
-pcb-module remote-controller :
-  inst power-supply : power-supply
-  schematic-group(power-supply) = power-supply
+pcb-module logic :
+  port power : power
+  ; FIMXE: hotfix because property does not flow in
+  property(power.vdd.voltage) = [0.98 * output-voltage, output-voltage, 1.02 * output-voltage] where :
+    val output-voltage = 2.8
 
-  net gnd (power-supply.gnd)
-  symbol(gnd) = ground-sym
-  net vdd (power-supply.vdd)
+  ; Add a Bluetooth SoC
+  inst proc : ocdb/espressif/ESP32-PICO-D4/module
+  net (power proc.power)
+
+  inst ant : inverted-f-antenna
+  net (proc.ant, ant.rf-in)
+  place(ant) at loc(9.0, 5.0, -90.0) on Top
+
+  ; A USB connector could be plugged to UART but would add weigth. Better to use an external usb module
+  attach-programming-connector(proc, power, "jtag")
+
+  inst imu : ocdb/invensense/MPU-6050/module
+  net (power imu.power)
+  make-voltage-divider(power.vdd, imu.vlogic, power.gnd, [1.71 1.8 1.89], 1.0e-4)
+  require proc-i2c:i2c from proc
+  net (proc-i2c imu.i2c)
+
+
+pcb-module actuators :
+  pin gnd
+  pin supply
 
   inst motor-holes : pin-header(2)[4] ; USAQ 10328268 https://www.amazon.com/USAQ-Coreless-Brushed-8-5x20mm-Propeller/dp/B06Y11C2HL
   ; Operating Voltage: 3.7-4.2V
   ; Operating Current: 0.08A-0.1A
   ; Motor Diameter: 8mm
 
-  ; Add a Bluetooth SoC
-  inst proc : ocdb/espressif/ESP32-PICO-D4/module
-  inst ant : inverted-f-antenna
-  net (proc.ant, ant.rf-in)
-  place(ant) at loc(9.0, 5.0, -90.0) on Top
-  ; A USB connector could be plugged to UART but would add weigth. Better to use an external usb module
-  ; Does the UART pins need a UART port part for connection to external UART-USB connector ?
-  net (power-supply.logic-supply proc.power.vdd)
-  net (gnd proc.gnd)
-  port pwr: power
-  net (vdd pwr.vdd)
-  net (gnd pwr.gnd)
-  attach-programming-connector(proc, pwr, "jtag")
-
   ; PWM for motors
   inst nfet : ocdb/slkormicro-elec/2N7002E/component[4]
   ; MOSFET N TRENCH 60V 300MA 2.5V @ 250UA 3 Ω @ 500MA,10V SOT-23 ROHS
 
   for i in 0 to 4 do :
-    require gpio:gpio from proc
-    net (nfet[i].g gpio.gpio)
     net (nfet[i].s gnd)
     net (nfet[i].d motor-holes[i].p[1])
-    net (power-supply.motor-supply motor-holes[i].p[2])
+    net (supply motor-holes[i].p[2])
     res-strap(nfet[i].g, nfet[i].s, 10.0e3)
 
-  inst imu : ocdb/invensense/MPU-6050/module
-  net (gnd imu.gnd)
-  net (power-supply.logic-supply imu.vdd)
-  make-voltage-divider(power-supply.logic-supply, imu.vlogic, gnd, [1.71 1.8 1.89], 1.0e-4)
-  require proc-i2c:i2c from proc
-  net (proc-i2c imu.i2c)
+
+pcb-module remote-controller :
+  net gnd ()
+  symbol(gnd) = ground-sym
+  net logic-supply ()
+  net actuators-supply ()
+
+  inst power-supply : power-supply
+  schematic-group(power-supply) = power-supply
+  net (gnd power-supply.gnd)
+  net (logic-supply power-supply.logic-supply)
+  net (actuators-supply power-supply.actuators-supply)
+
+  inst logic : logic
+  schematic-group(logic) = logic
+  net (logic-supply logic.power.vdd)
+  ; FIXME: This should flow automatically, that is the 3rd statement to make it flow and this statement doesn't work
+  property(logic-supply.voltage) = property(logic.power.vdd.voltage)
+  net (gnd logic.power.gnd)
+
+  inst actuators : actuators
+  schematic-group(actuators) = actuators
+  net (gnd actuators.gnd)
+  net (actuators-supply, actuators.supply)
+  for i in 0 to 4 do :
+    require gpio:gpio from logic.proc
+    net (actuators.nfet[i].g gpio.gpio)
 
 make-default-board(remote-controller, 4, 100.0, 100.0)
 
