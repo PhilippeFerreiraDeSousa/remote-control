@@ -97,6 +97,8 @@ defn create-logic (gnd: JITXObject,
     property(supply.voltage) = property(logic.power.vdd.voltage)
     net (gnd logic.power.gnd)
 
+    logic
+
 ;======================================
 ;============== Actuators =============
 ;======================================
@@ -139,17 +141,17 @@ pcb-module remote-controller :
   net actuators-supply ()
 
   create-power-supply(gnd, logic-supply, actuators-supply)
-  create-logic(gnd, logic-supply)
+  val logic = create-logic(gnd, logic-supply)
   create-actuators(gnd, actuators-supply)
 
   for i in 0 to 4 do :
-    require gpio:gpio from logic.proc
-    net (actuators.nfet[i].g gpio.gpio)
+    require pwm:pwm from logic.proc
+    net (actuators.nfet[i].g pwm.pwm)
 
 make-default-board(remote-controller, 4, 100.0, 100.0)
 
 ; Export CAD with default options
-;export-cad()
+export-cad()
 
 ; Show the Schematic and PCB for the design
 view-board()
