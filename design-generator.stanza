@@ -59,6 +59,8 @@ defn create-power-supply (gnd: JITXObject,
     net (logic-supply power-supply.logic-supply)
     net (actuators-supply power-supply.actuators-supply)
 
+    power-supply
+
 
 ;======================================
 ;================ Logic ===============
@@ -88,7 +90,8 @@ pcb-module logic :
   net (proc-i2c imu.i2c)
 
 defn create-logic (gnd: JITXObject,
-                   supply: JITXObject) :
+                   supply: JITXObject,
+                   actuators-link: Tuple<JITXObject>) :
   inside pcb-module :
     inst logic : logic
     schematic-group(logic) = logic
@@ -96,6 +99,10 @@ defn create-logic (gnd: JITXObject,
     ; FIXME: This should flow automatically, that is the 3rd statement to make it flow and this statement doesn't work
     property(supply.voltage) = property(logic.power.vdd.voltage)
     net (gnd logic.power.gnd)
+
+    for i in 0 to 4 do :
+      require pwm:pwm from logic.proc
+      net (actuators-link[i] pwm.pwm)
 
     logic
 
@@ -123,37 +130,44 @@ pcb-module actuators :
     res-strap(nfet[i].g, nfet[i].s, 10.0e3)
 
 defn create-actuators (gnd: JITXObject,
-                       supply: JITXObject) :
+                       supply: JITXObject,
+                       logic-link: Tuple<JITXObject>) :
   inside pcb-module :
     inst actuators : actuators
     schematic-group(actuators) = actuators
     net (gnd actuators.gnd)
     net (supply, actuators.supply)
 
+    for i in 0 to 4 do :
+      net (logic-link[i] actuators.nfet[i].g)
+
+    actuators
+
 ;======================================
 ;============== Design =============
 ;======================================
+
+defn make-logic-actuators-links () :
+  to-tuple $
+    for i in 0 to 4 seq :
+      net logic-actuators-link ()
+      logic-actuators-link
 
 pcb-module remote-controller :
   net gnd ()
   symbol(gnd) = ground-sym
   net logic-supply ()
   net actuators-supply ()
+  val logic-actuators-links = make-logic-actuators-links()
 
   create-power-supply(gnd, logic-supply, actuators-supply)
-  val logic = create-logic(gnd, logic-supply)
-  create-actuators(gnd, actuators-supply)
+  create-logic(gnd, logic-supply, logic-actuators-links)
+  create-actuators(gnd, actuators-supply, logic-actuators-links)
 
-  for i in 0 to 4 do :
-    require pwm:pwm from logic.proc
-    net (actuators.nfet[i].g pwm.pwm)
 
 make-default-board(remote-controller, 4, 100.0, 100.0)
 
-; Export CAD with default options
 export-cad()
-
-; Show the Schematic and PCB for the design
 view-board()
 view-schematic()
 
